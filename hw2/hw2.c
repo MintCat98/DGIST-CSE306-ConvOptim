@@ -4,9 +4,10 @@
 #include "bmplib.h"
 #include "hw2.h"
 
-// Define the tile size
+// Tiling method
 #define TILE_SIZE 16
 
+// Merge 2 functions and remove unnecessary memory allocation
 void filter_optimized(void* args[]) {
     unsigned int width = *(unsigned int*)args[0];
     unsigned int height = *(unsigned int*)args[1];
@@ -16,7 +17,12 @@ void filter_optimized(void* args[]) {
 
     int tile_x, tile_y, x, y;
 
-    // Process the image in tiles to improve cache performance
+    // Pre-calculate for loop-unrolling
+    float f0 = filter[0], f1 = filter[1], f2 = filter[2];
+    float f3 = filter[3], f4 = filter[4], f5 = filter[5];
+    float f6 = filter[6], f7 = filter[7], f8 = filter[8];
+
+    // Tiling method
     for (tile_y = 0; tile_y < height; tile_y += TILE_SIZE) {
         for (tile_x = 0; tile_x < width; tile_x += TILE_SIZE) {
             for (y = tile_y; y < tile_y + TILE_SIZE && y < height; ++y) {
@@ -26,39 +32,39 @@ void filter_optimized(void* args[]) {
 
                     // Handle boundaries
                     if (x > 0 && x < width - 1 && y > 0 && y < height - 1) {
-                        // Unrolling the loop for better performance for non-boundary pixels
-                        r += input[idx - width - 1].r * filter[0];
-                        r += input[idx - width].r * filter[1];
-                        r += input[idx - width + 1].r * filter[2];
-                        r += input[idx - 1].r * filter[3];
-                        r += input[idx].r * filter[4];
-                        r += input[idx + 1].r * filter[5];
-                        r += input[idx + width - 1].r * filter[6];
-                        r += input[idx + width].r * filter[7];
-                        r += input[idx + width + 1].r * filter[8];
+                        // Loop-unrolling for non-boundary pixels
+                        r = input[idx - width - 1].r * f0 +
+                            input[idx - width].r * f1 +
+                            input[idx - width + 1].r * f2 +
+                            input[idx - 1].r * f3 +
+                            input[idx].r * f4 +
+                            input[idx + 1].r * f5 +
+                            input[idx + width - 1].r * f6 +
+                            input[idx + width].r * f7 +
+                            input[idx + width + 1].r * f8;
 
-                        g += input[idx - width - 1].g * filter[0];
-                        g += input[idx - width].g * filter[1];
-                        g += input[idx - width + 1].g * filter[2];
-                        g += input[idx - 1].g * filter[3];
-                        g += input[idx].g * filter[4];
-                        g += input[idx + 1].g * filter[5];
-                        g += input[idx + width - 1].g * filter[6];
-                        g += input[idx + width].g * filter[7];
-                        g += input[idx + width + 1].g * filter[8];
+                        g = input[idx - width - 1].g * f0 +
+                            input[idx - width].g * f1 +
+                            input[idx - width + 1].g * f2 +
+                            input[idx - 1].g * f3 +
+                            input[idx].g * f4 +
+                            input[idx + 1].g * f5 +
+                            input[idx + width - 1].g * f6 +
+                            input[idx + width].g * f7 +
+                            input[idx + width + 1].g * f8;
 
-                        b += input[idx - width - 1].b * filter[0];
-                        b += input[idx - width].b * filter[1];
-                        b += input[idx - width + 1].b * filter[2];
-                        b += input[idx - 1].b * filter[3];
-                        b += input[idx].b * filter[4];
-                        b += input[idx + 1].b * filter[5];
-                        b += input[idx + width - 1].b * filter[6];
-                        b += input[idx + width].b * filter[7];
-                        b += input[idx + width + 1].b * filter[8];
+                        b = input[idx - width - 1].b * f0 +
+                            input[idx - width].b * f1 +
+                            input[idx - width + 1].b * f2 +
+                            input[idx - 1].b * f3 +
+                            input[idx].b * f4 +
+                            input[idx + 1].b * f5 +
+                            input[idx + width - 1].b * f6 +
+                            input[idx + width].b * f7 +
+                            input[idx + width + 1].b * f8;
                     }
                     else {
-                        // Apply convolution for boundary pixels
+                        // Only apply convolution for boundary pixels
                         for (int dy = -1; dy <= 1; ++dy) {
                             for (int dx = -1; dx <= 1; ++dx) {
                                 int ix = x + dx;
