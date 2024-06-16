@@ -11,31 +11,45 @@
 #include "bmplib.h"
 #include "hw2.h"
 
+#define BLOCK_SIZE 16
+
 // This implementation is simply copied from "main.c".
 // Your job is to modify and optimize it for better performance!
-inline static Pixel convolution(Pixel* input, int x, int y, int width, int height, const int* filter) {
-    int r = 0, g = 0, b = 0; // double to int
-    int index = 0;
+static inline Pixel convolution(const Pixel* input, int x, int y, int width, int height, const int* filter) {
+    int r = 0, g = 0, b = 0;
 
-    for (int dy = -1; dy <= 1; ++dy) {
-        for (int dx = -1; dx <= 1; ++dx) {
-            int ix = x + dx;
-            int iy = y + dy;
-            if (ix >= 0 && ix < width && iy >= 0 && iy < height) {
-                index = (dy + 1) * 3 + (dx + 1);
-                int pixel_index = iy * width + ix;
-                r += input[pixel_index].r * filter[index];
-                g += input[pixel_index].g * filter[index];
-                b += input[pixel_index].b * filter[index];
-            }
+    // 블록 매트릭스와 루프 언롤링을 사용하여 캐시 효율성을 높임
+    for (int dy = 0; dy < 3; ++dy) {
+        int iy = y + dy - 1;
+        if (iy < 0 || iy >= height) continue;
+
+        for (int dx = 0; dx < 3; ++dx) {
+            int ix = x + dx - 1;
+            if (ix < 0 || ix >= width) continue;
+
+            const Pixel* pixel = &input[ix + iy * width];
+            int filter_value = filter[dx + dy * 3];
+
+            r += pixel->r * filter_value;
+            g += pixel->g * filter_value;
+            b += pixel->b * filter_value;
         }
     }
 
-    r = r < 0 ? 0 : (r > 255 ? 255 : r);
-    g = g < 0 ? 0 : (g > 255 ? 255 : g);
-    b = b < 0 ? 0 : (b > 255 ? 255 : b);
+    // 값을 1/9로 나누는 대신 9로 곱하는 대신 1/9를 나누는 대신 시프트 연산으로 변환
+    r = (r + 4) / 9;  // 근사화된 결과를 위해 반올림
+    g = (g + 4) / 9;
+    b = (b + 4) / 9;
 
-    Pixel p = { (unsigned char)r, (unsigned char)g, (unsigned char)b };
+    r = (r < 0) ? 0 : (r > 255) ? 255 : r;
+    g = (g < 0) ? 0 : (g > 255) ? 255 : g;
+    b = (b < 0) ? 0 : (b > 255) ? 255 : b;
+
+    Pixel p;
+    p.r = (unsigned char)r;
+    p.g = (unsigned char)g;
+    p.b = (unsigned char)b;
+
     return p;
 }
 
@@ -43,33 +57,51 @@ inline static Pixel convolution(Pixel* input, int x, int y, int width, int heigh
 void filter_optimized(void* args[]) {
     unsigned int width = *(unsigned int*)args[0];
     unsigned int height = *(unsigned int*)args[1];
-    Pixel* input = args[2];
-    Pixel* output = args[3];
-    const float* filter_float = args[4];
+    Pixel* input = (Pixel*)args[2];
+    Pixel* output = (Pixel*)args[3];
+    float* float_filter = (float*)args[4];
 
-    // Convert filter to integer scale (e.g., multiply by 256 and round)
+    // 부동 소수점 필터를 정수 필터로 변환
     int filter[9];
     for (int i = 0; i < 9; ++i) {
-        filter[i] = (int)(filter_float[i] * 256);
+        filter[i] = (int)(float_filter[i] * 9);  // 정수로 변환
     }
 
-    // Define block size
-    int blockSize = 16;
+    // 블록 단위로 처리하여 캐시 효율성을 높임
+    for (int by = 0; by < height; by += BLOCK_SIZE) {
+        for (int bx = 0; bx < width; bx += BLOCK_SIZE) {
+            for (int y = by; y < by + BLOCK_SIZE && y < height; ++y) {
+                for (int x = bx; x < bx + BLOCK_SIZE && x < width; x += 8) {
+                    Pixel p1 = convolution(input, x, y, width, height, filter);
+                    output[x + y * width] = p1;
 
-    for (int by = 0; by < height; by += blockSize) {
-        for (int bx = 0; bx < width; bx += blockSize) {
-            for (int y = by; y < by + blockSize && y < height; ++y) {
-                for (int x = bx; x < bx + blockSize && x < width; x += 4) {
-                    // Loop unrolling for x direction
-                    output[y * width + x] = convolution(input, x, y, width, height, filter);
-                    if (x + 1 < bx + blockSize && x + 1 < width) {
-                        output[y * width + (x + 1)] = convolution(input, x + 1, y, width, height, filter);
+                    if (x + 1 < width) {
+                        Pixel p2 = convolution(input, x + 1, y, width, height, filter);
+                        output[(x + 1) + y * width] = p2;
                     }
-                    if (x + 2 < bx + blockSize && x + 2 < width) {
-                        output[y * width + (x + 2)] = convolution(input, x + 2, y, width, height, filter);
+                    if (x + 2 < width) {
+                        Pixel p3 = convolution(input, x + 2, y, width, height, filter);
+                        output[(x + 2) + y * width] = p3;
                     }
-                    if (x + 3 < bx + blockSize && x + 3 < width) {
-                        output[y * width + (x + 3)] = convolution(input, x + 3, y, width, height, filter);
+                    if (x + 3 < width) {
+                        Pixel p4 = convolution(input, x + 3, y, width, height, filter);
+                        output[(x + 3) + y * width] = p4;
+                    }
+                    if (x + 4 < width) {
+                        Pixel p5 = convolution(input, x + 4, y, width, height, filter);
+                        output[(x + 4) + y * width] = p5;
+                    }
+                    if (x + 5 < width) {
+                        Pixel p6 = convolution(input, x + 5, y, width, height, filter);
+                        output[(x + 5) + y * width] = p6;
+                    }
+                    if (x + 6 < width) {
+                        Pixel p7 = convolution(input, x + 6, y, width, height, filter);
+                        output[(x + 6) + y * width] = p7;
+                    }
+                    if (x + 7 < width) {
+                        Pixel p8 = convolution(input, x + 7, y, width, height, filter);
+                        output[(x + 7) + y * width] = p8;
                     }
                 }
             }
